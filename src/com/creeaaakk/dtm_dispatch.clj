@@ -1,5 +1,6 @@
 (ns com.creeaaakk.dtm-dispatch
-  (:require [clojure.core.match :refer [match]])
+  (:require [clojure.core.match :refer [match]]
+            [datomic.api :as d])
   (:import [java.util.concurrent
             ThreadPoolExecutor ThreadPoolExecutor$DiscardPolicy
             TimeUnit SynchronousQueue BlockingQueue]))
@@ -12,20 +13,42 @@
   (start [this])
   (stop [this]))
 
+(defprotocol IProducer
+  (start-events [this] [this queue]
+    "Returns a queue (or uses the provided queue) that events will be made available on.")
+  (stop-events [this] [this queue]
+    "Stops appending events onto the queue."))
+
+(extend-type datomic.Connection
+  IProducer
+  (start-events
+    ([connection]
+       (d/tx-report-queue connection))
+    ([connection _]
+       (throw (Error. "(get-events this queue) not implemented for datomic.Connection"))))
+  (stop-events
+    ([connection]
+       (d/remove-tx-report-queue connection))
+    ([connection _]
+       (d/remove-tx-report-queue connection))))
+
 (declare pumping-loop)
 
 (deftype DispatchingExecutor
-    [dispatch-table executor ^BlockingQueue txn-queue ^BlockingQueue work-queue stop? pumping-thread]
+    [dispatch-table executor producer ^BlockingQueue txn-queue ^BlockingQueue work-queue stop pumping-thread]
 
   IDaemon
   (start [this]
     (if (nil? @pumping-thread)
-      (do (reset! pumping-thread (Thread. (pumping-loop txn-queue this stop? executor) "pumping-thread"))
+      (do (reset! pumping-thread (Thread. (pumping-loop txn-queue this stop executor) "pumping-thread"))
           (.start @pumping-thread))
       (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState pumping-thread)}))))
   (stop [_]
-    (reset! stop? true)
-    (.shutdown executor))
+    (stop-events producer)
+    (.put txn-queue stop)
+    (.join @pumping-thread)
+    (.shutdown executor)
+    :done)
     
   IDispatch
   (set-dispatch-table [_ table]
@@ -55,12 +78,12 @@
   (make-dispatch-fn &env (partition 2 handlers)))
 
 (defn pumping-loop
-  [txn-queue dispatch-table stop? executor]
-  (fn [] (loop [txn (.poll txn-queue 100 TimeUnit/MILLISECONDS)]
-          (when-not @stop?
+  [txn-queue dispatch-table stop-sentinel executor]
+  (fn [] (loop [txn (.take txn-queue)]
+          (when-not (identical? txn stop-sentinel)
             (if-let [handler (dispatch dispatch-table txn)]
               (.execute executor handler))
-            (recur (.poll txn-queue 100 TimeUnit/MILLISECONDS))))))
+            (recur (.take txn-queue))))))
 
 (defn executor
   "Given a sequence of txn handlers and a txn-queue, return a
@@ -78,6 +101,7 @@
                                       (ThreadPoolExecutor$DiscardPolicy.))
                  dispatch
                  txn-queue work-queue)))
-  ([executor dispatch txn-queue work-queue]
-     (->DispatchingExecutor (atom dispatch) executor txn-queue work-queue (atom false) (atom nil))))
+  ([executor dispatch producer work-queue]
+     (let [txn-queue (start-events producer)]
+       (->DispatchingExecutor (atom dispatch) executor producer txn-queue work-queue (Object.) (atom nil)))))
 
