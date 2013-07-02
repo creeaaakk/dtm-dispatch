@@ -1,5 +1,6 @@
 (defproject com.creeaaakk.dtm-dispatch "0.1.0-SNAPSHOT"
   :description "Rapidly dispatch to handler functions, based on incoming datomic transactions."
+  :url "https://github.com/creeaaakk/dtm-dispatch"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.5.1"]
