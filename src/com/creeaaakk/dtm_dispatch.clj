@@ -1,5 +1,5 @@
 (ns com.creeaaakk.dtm-dispatch
-  (:require [clojure.core.match :refer [match]]
+  (:require [clojure.core.match :refer [clj-form]]
             [datomic.api :as d])
   (:import [java.util.concurrent
             ThreadPoolExecutor ThreadPoolExecutor$DiscardPolicy
@@ -42,7 +42,7 @@
     (if (nil? @pumping-thread)
       (do (reset! pumping-thread (Thread. (pumping-loop txn-queue this stop executor) "pumping-thread"))
           (.start @pumping-thread))
-      (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState pumping-thread)}))))
+      (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState @pumping-thread)}))))
   (stop [_]
     (stop-events producer)
     (.put txn-queue stop)
@@ -54,28 +54,13 @@
   (set-dispatch-table [_ table]
     (reset! dispatch-table table))
   (dispatch [_ args]
-    (@dispatch-table args)))
+    (when (and (vector? args) (= (count args) 4))
+      (@dispatch-table args))))
 
-(defn resolve-handler
-  [ns env handler]
-  (cond
-   (symbol? handler) (ns-resolve ns env handler)
-   :else handler))
-
-(defn make-dispatch-fn
-  "Given a sequence of the form:
-
-    [match-clause handler]
-
-   Return a function that will, given an event, return the handler
-   whose match-clause matches the event."
-  [env handlers]
-  (let [clauses (mapcat (fn [[m h]] [m (resolve-handler *ns* env h)]) handlers)]
-    `(fn [event#] (match event# ~@clauses ~'_ nil))))
-
-(defmacro dispatch-fn
-  [& handlers]
-  (make-dispatch-fn &env (partition 2 handlers)))
+(defn dispatch-fn
+  [handlers]
+  (let [args (vec (repeatedly 4 gensym))]
+    (eval (list 'fn [args] (clj-form args (concat handlers [:else nil]))))))
 
 (defn pumping-loop
   [txn-queue dispatch-table stop-sentinel executor]
@@ -90,7 +75,7 @@
   ThreadPoolExecutor that will run the appropriate handler for each
   txn in the queue."
   ([txn-queue]
-     (executor (dispatch-fn)))
+     (executor (dispatch-fn '()) txn-queue))
   ([dispatch txn-queue]
      (executor dispatch txn-queue (SynchronousQueue.)))
   ([dispatch txn-queue work-queue]
