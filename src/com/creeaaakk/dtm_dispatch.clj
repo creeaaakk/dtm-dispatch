@@ -56,20 +56,23 @@
   (set-dispatch-table! [_ table]
     (reset! dispatch-table table))
   (dispatch [_ args]
-    (when (and (vector? args) (= (count args) 4))
-      (@dispatch-table args))))
+    (loop [[datom & datoms] (:tx-data args)]
+      (when datom
+        (if-let [handler (@dispatch-table datom)]
+          handler
+          (recur datoms))))))
 
 (defn dispatch-fn
   [handlers]
-  (let [args (vec (repeatedly 4 gensym))]
-    (eval (list 'fn [args] (clj-form args (concat handlers [:else nil]))))))
+  (let [args (gensym)]
+    (eval (list 'fn [args] (clj-form [args] (concat handlers [:else nil]))))))
 
 (defn pumping-loop
   [txn-queue dispatch-table stop-sentinel executor]
   (fn [] (loop [txn (.take txn-queue)]
           (when-not (identical? txn stop-sentinel)
             (if-let [handler (dispatch dispatch-table txn)]
-              (.execute executor handler))
+              (.execute executor (handler txn)))
             (recur (.take txn-queue))))))
 
 (defn executor
