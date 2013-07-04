@@ -47,7 +47,7 @@
 
 (defn foo
   []
-  (set-dispatch-table e dsp1)
+  (set-dispatch-table! e dsp1)
   (start e)
   (Thread/sleep 100)
-  (set-dispatch-table e dsp2))
+  (set-dispatch-table! e dsp2))

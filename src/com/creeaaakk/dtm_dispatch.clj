@@ -6,7 +6,7 @@
             TimeUnit SynchronousQueue BlockingQueue]))
 
 (defprotocol IDispatch
-  (set-dispatch-table [this table])
+  (set-dispatch-table! [this table])
   (dispatch [this args]))
 
 (defprotocol IDaemon
@@ -53,7 +53,7 @@
     :done)
     
   IDispatch
-  (set-dispatch-table [_ table]
+  (set-dispatch-table! [_ table]
     (reset! dispatch-table table))
   (dispatch [_ args]
     (when (and (vector? args) (= (count args) 4))
