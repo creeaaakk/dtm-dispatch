@@ -11,7 +11,9 @@
                  ;; of this library the ability to use either
                  ;; datomic-free or datomic-pro.
                  [com.datomic/datomic-pro "0.8.3862"]]
-  
+
+  :repositories [["snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
+                               :creds :gpg}]]  
   
   :profiles {:dev {:dependencies [[clj-stacktrace "0.2.5"]
                                   [org.clojure/tools.namespace "0.2.3"]
