@@ -7,36 +7,48 @@
 
 (def job-count (atom {}))
 
-(def q (LinkedBlockingQueue. (repeatedly 100000 #(rand-nth [[1 :user/username 10 false]
-                                                            [1 :user/username 10 true]
-                                                            [1 :user/phone-number 10 true]
-                                                            'foo]))))
+(def q (LinkedBlockingQueue. (map #(hash-map :tx-data [%])
+                                  (repeatedly 1000000 #(rand-nth [{:e 1 :a :user/username :v 10 :added false}
+                                                                  {:e 1 :a :user/username :v 10 :added true}
+                                                                  {:e 1 :a :user/phone-number :v 10 :added true}
+                                                                  :foo])))))
 
 (defn new-user-job
   [key]
-  #(swap! job-count update-in [:new-user-job key] (fnil inc 0)))
+  (fn [_]
+    #(swap! job-count update-in [:new-user-job key] (fnil inc 0))))
 
 (defn removed-user-job
   [key]
-  #(swap! job-count update-in [:removed-user-job key] (fnil inc 0)))
+  (fn [_]
+    #(swap! job-count update-in [:removed-user-job key] (fnil inc 0))))
 
 (defn notify-contacts-job
   [key]
-  #(swap! job-count update-in [:notify-contacts-job key] (fnil inc 0)))
+  (fn [_]
+    #(swap! job-count update-in [:notify-contacts-job key] (fnil inc 0))))
 
-(def dsp1 (dispatch-fn ['[_ :user/username _ true] `(new-user-job :dsp1)
-                        '[_ :user/username _ false] `(removed-user-job :dsp1)
-                        '[_ (:or :user/phone-number
-                                :device/phone-number
-                                :contact/phone-number
-                                :phone-number/number) _ _] `(notify-contacts-job :dsp1)]))
+(def dsp1 (dispatch-fn [{:event {:a :user/username :added true}
+                         :handler (new-user-job :dsp1)
+                         :symbol ::new-user-job}
+                        {:event {:a :user/username :added false}
+                         :handler (removed-user-job :dsp1)
+                         :symbol ::removed-user-job}
+                        {:event {:a '(:or :user/phone-number :device/phone-number
+                                         :contact/phone-number :phone-number/number)}
+                         :handler (notify-contacts-job :dsp1)
+                         :symbol ::notify-contacts-job}]))
 
-(def dsp2 (dispatch-fn ['[_ :user/username _ true] `(new-user-job :dsp2)
-                        '[_ :user/username _ false] `(removed-user-job :dsp2)
-                        '[_ (:or :user/phone-number
-                                :device/phone-number
-                                :contact/phone-number
-                                :phone-number/number) _ _] `(notify-contacts-job :dsp2)]))
+(def dsp2 (dispatch-fn [{:event {:a :user/username :added true}
+                         :handler (new-user-job :dsp2)
+                         :symbol ::new-user-job}
+                        {:event {:a :user/username :added false}
+                         :handler (removed-user-job :dsp2)
+                         :symbol ::removed-user-job}
+                        {:event {:a '(:or :user/phone-number :device/phone-number
+                                         :contact/phone-number :phone-number/number)}
+                         :handler (notify-contacts-job :dsp2)
+                         :symbol ::notify-contacts-job}]))
 
 (extend-type LinkedBlockingQueue
   IProducer
@@ -48,6 +60,7 @@
 (defn foo
   []
   (set-dispatch-table! e dsp1)
+  (println "Starting:" (java.util.Date.))
   (start e)
   (Thread/sleep 100)
   (set-dispatch-table! e dsp2))
