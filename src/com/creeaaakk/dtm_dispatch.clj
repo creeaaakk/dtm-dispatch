@@ -45,8 +45,10 @@
       (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState @pumping-thread)}))))
   (stop [_]
     (stop-events producer)
-    (.put txn-queue stop)
-    (.join @pumping-thread)
+    (when-not (or (nil? @pumping-thread)
+                  (= (.getState @pumping-thread) Thread$State/TERMINATED))
+      (.put txn-queue stop)
+      (.join @pumping-thread))
     (.shutdown executor)
     :done)
     
