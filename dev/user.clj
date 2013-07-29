@@ -1,7 +1,6 @@
 (ns user
   (:use [clojure.tools.namespace.repl :only [refresh]]
-        clojure.repl)
-  (:import [java.util.concurrent LinkedBlockingQueue]))
+        clojure.pprint clojure.repl))
 
 (def dev #(use 'dev))
 

@@ -5,10 +5,6 @@
             ThreadPoolExecutor ThreadPoolExecutor$DiscardPolicy
             TimeUnit SynchronousQueue BlockingQueue]))
 
-(defprotocol IDispatch
-  (set-dispatch-table! [this table])
-  (dispatch [this args]))
-
 (defprotocol IDaemon
   (start [this])
   (stop [this]))
@@ -18,6 +14,10 @@
     "Returns a queue (or uses the provided queue) that events will be made available on.")
   (stop-events [this] [this queue]
     "Stops appending events onto the queue."))
+
+(defprotocol IDispatch
+  (set-dispatch-table! [this table])
+  (dispatch [this args]))
 
 (extend-type datomic.Connection
   IProducer
@@ -63,9 +63,22 @@
           (recur datoms))))))
 
 (defn dispatch-fn
+  "Return a dispatch function of one argument. This function receives an event and
+   matches it against its known handlers, returning the first handler to match, or
+   nil if there are no matches.
+
+     handlers is a sequence of maps of the form:
+
+        - :event   :: core.match pattern row
+        - :handler :: function to be returned if the :event is matched"
   [handlers]
-  (let [args (gensym)]
-    (eval (list 'fn [args] (clj-form [args] (concat handlers [:else nil]))))))
+  (let [datom (gensym)
+        syms (repeatedly (count handlers) gensym)
+        clauses (vec (mapcat #(vector [%1] %2) (map :event handlers) syms))
+        sym->handler (apply hash-map (interleave (map keyword syms) (map :handler handlers)))]
+    (partial (eval `(fn [{:keys ~(vec syms)} ~datom]
+                      ~(clj-form [datom] (concat clauses [:else nil]))))
+             sym->handler)))
 
 (defn pumping-loop
   [txn-queue dispatch-table stop-sentinel executor]
@@ -80,7 +93,7 @@
   ThreadPoolExecutor that will run the appropriate handler for each
   txn in the queue."
   ([txn-queue]
-     (executor (dispatch-fn '()) txn-queue))
+     (executor (dispatch-fn nil) txn-queue))
   ([dispatch txn-queue]
      (executor dispatch txn-queue (SynchronousQueue.)))
   ([dispatch txn-queue work-queue]
