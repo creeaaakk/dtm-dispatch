@@ -17,6 +17,8 @@
 
 (defprotocol IDispatch
   (set-dispatch-table! [this table])
+  (add-dispatch-target! [this key target])
+  (rem-dispatch-target! [this key])
   (dispatch [this args]))
 
 (extend-type datomic.Connection
@@ -33,34 +35,6 @@
        (d/remove-tx-report-queue connection))))
 
 (declare pumping-loop)
-
-(deftype DispatchingExecutor
-    [dispatch-table executor producer ^BlockingQueue txn-queue ^BlockingQueue work-queue stop pumping-thread]
-
-  IDaemon
-  (start [this]
-    (if (nil? @pumping-thread)
-      (do (reset! pumping-thread (Thread. (pumping-loop txn-queue this stop executor) "pumping-thread"))
-          (.start @pumping-thread))
-      (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState @pumping-thread)}))))
-  (stop [_]
-    (stop-events producer)
-    (when-not (or (nil? @pumping-thread)
-                  (= (.getState @pumping-thread) Thread$State/TERMINATED))
-      (.put txn-queue stop)
-      (.join @pumping-thread))
-    (.shutdown executor)
-    :done)
-    
-  IDispatch
-  (set-dispatch-table! [_ table]
-    (reset! dispatch-table table))
-  (dispatch [_ args]
-    (loop [[datom & datoms] (:tx-data args)]
-      (when datom
-        (if-let [handler (@dispatch-table datom)]
-          handler
-          (recur datoms))))))
 
 (defn dispatch-fn
   "Return a dispatch function of one argument. This function receives an event and
@@ -80,6 +54,49 @@
                       ~(clj-form [datom] (concat clauses [:else nil]))))
              sym->handler)))
 
+(deftype DispatchingExecutor
+    [dispatch-table dispatcher executor producer ^BlockingQueue txn-queue ^BlockingQueue work-queue stop pumping-thread]
+
+  IDaemon
+  (start [this]
+    (if (nil? @pumping-thread)
+      (do (reset! pumping-thread (Thread. (pumping-loop txn-queue this stop executor) "pumping-thread"))
+          (.start @pumping-thread))
+      (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState @pumping-thread)}))))
+  (stop [_]
+    (stop-events producer)
+    (when-not (or (nil? @pumping-thread)
+                  (= (.getState @pumping-thread) Thread$State/TERMINATED))
+      (.put txn-queue stop)
+      (.join @pumping-thread))
+    (.shutdown executor)
+    :done)
+    
+  IDispatch
+  (set-dispatch-table! [_ table]
+    (dosync
+     (ref-set dispatch-table table)
+     (ref-set dispatcher (dispatch-fn (vals table)))))
+  (add-dispatch-target! [_ key target]
+    (dosync
+     (->> target
+          (commute dispatch-table assoc key)
+          vals
+          dispatch-fn
+          (ref-set dispatcher))))
+  (rem-dispatch-target! [_ key]
+    (dosync
+     (->> (alter dispatch-table dissoc key)
+          vals
+          dispatch-fn
+          (ref-set dispatcher))))
+  (dispatch [_ args]
+    (loop [[datom & datoms] (:tx-data args)]
+      (when datom
+        (if-let [handler (@dispatcher datom)]
+          handler
+          (recur datoms))))))
+
 (defn pumping-loop
   [txn-queue dispatch-table stop-sentinel executor]
   (fn [] (loop [txn (.take txn-queue)]
@@ -93,7 +110,7 @@
   ThreadPoolExecutor that will run the appropriate handler for each
   txn in the queue."
   ([txn-queue]
-     (executor (dispatch-fn nil) txn-queue))
+     (executor nil txn-queue))
   ([dispatch txn-queue]
      (executor dispatch txn-queue (SynchronousQueue.)))
   ([dispatch txn-queue work-queue]
@@ -106,5 +123,7 @@
                  txn-queue work-queue)))
   ([executor dispatch producer work-queue]
      (let [txn-queue (start-events producer)]
-       (->DispatchingExecutor (atom dispatch) executor producer txn-queue work-queue (Object.) (atom nil)))))
+       (->DispatchingExecutor (ref dispatch) (ref (dispatch-fn dispatch))
+                              executor producer txn-queue work-queue
+                              (Object.) (atom nil)))))
 

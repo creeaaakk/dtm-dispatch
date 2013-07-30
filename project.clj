@@ -1,4 +1,4 @@
-(defproject com.creeaaakk.dtm-dispatch "0.1.1"
+(defproject com.creeaaakk.dtm-dispatch "0.1.2-SNAPSHOT"
   :description "Rapidly dispatch to handler functions, based on incoming datomic transactions."
   :url "https://github.com/creeaaakk/dtm-dispatch"
   :license {:name "Eclipse Public License"
