@@ -2,7 +2,7 @@
   (:use [clojure repl pprint]
         [clojure.tools.namespace.repl :only [refresh]]
         criterium.core
-        com.creeaaakk.dtm-dispatch)
+        com.creeaaakk.dtm-dispatch.executor)
   (:require [com.creeaaakk.dtm-dispatch.protocols
              [dispatch :as dsp]
              [producer :as p]

@@ -1,4 +1,4 @@
-(ns com.creeaaakk.dtm-dispatch
+(ns com.creeaaakk.dtm-dispatch.executor
   (:require [clojure.core.match :refer [clj-form]]
 
             [com.creeaaakk.dtm-dispatch.protocols
