@@ -50,8 +50,6 @@
           (when-not (identical? txn stop-sentinel)
             (if-let [handler (dsp/dispatch dispatch-table (:tx-data txn))]
               (.execute executor (handler txn)))
-            (when (.isEmpty txn-queue)
-              (println "Done:" (java.util.Date.)))
             (recur (.take txn-queue))))))
 
 (defn executor
