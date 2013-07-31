@@ -3,6 +3,8 @@
         [clojure.tools.namespace.repl :only [refresh]]
         criterium.core
         com.creeaaakk.dtm-dispatch)
+  (:require [com.creeaaakk.dtm-dispatch.protocols.dispatch :as dsp]
+            [com.creeaaakk.cm-dispatch :as cmd])
   (:import [java.util.concurrent LinkedBlockingQueue]))
 
 (def job-count (atom {}))
@@ -15,9 +17,9 @@
                                    {:e 1 :a :user/phone-number :v 10 :added true}
                                    :foo]))))
 
-(def events (make-events 1000000))
+#_(def events (make-events 1000000))
 
-(def q (LinkedBlockingQueue. events))
+(def q (LinkedBlockingQueue.))
 
 (defn new-user-job
   [key]
@@ -67,7 +69,8 @@
   (start-events ([this] this) ([this _] this))
   (stop-events ([_] nil) ([_ _] nil)))
 
-(def e (executor dsp1 q))
+(def disp (cmd/cm-dispatch dsp1))
+(def e (executor disp q))
 
 (defn expected-count
   [events dispatch]
@@ -86,14 +89,16 @@
 
 (defn foo
   []
-  (set-dispatch-table! e dsp1)
+  (dsp/set-dispatch-table! disp dsp1)
   (println "Starting:" (java.util.Date.))
   (start e)
+  (future (doseq [e (make-events 1e6)]
+            (.put q e)))
   (Thread/sleep 100)
-  (set-dispatch-table! e dsp2)
+  (dsp/set-dispatch-table! disp dsp2)
   (Thread/sleep 500)
-  (add-dispatch-target! e ::default-foo {:event :foo :handler added-job})
+  (dsp/add-dispatch-target! disp ::default-foo {:event :foo :handler added-job})
   (Thread/sleep 1000)
   (dosync
-   (rem-dispatch-target! e ::default-foo)
-   (add-dispatch-target! e ::default-foo {:event :foo :handler default-foo-job})))
+   (dsp/rem-dispatch-target! disp ::default-foo)
+   (dsp/add-dispatch-target! disp ::default-foo {:event :foo :handler default-foo-job})))
