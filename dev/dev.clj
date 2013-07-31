@@ -3,7 +3,10 @@
         [clojure.tools.namespace.repl :only [refresh]]
         criterium.core
         com.creeaaakk.dtm-dispatch)
-  (:require [com.creeaaakk.dtm-dispatch.protocols.dispatch :as dsp]
+  (:require [com.creeaaakk.dtm-dispatch.protocols
+             [dispatch :as dsp]
+             [producer :as p]
+             [daemon :as dmn]]
             [com.creeaaakk.cm-dispatch :as cmd])
   (:import [java.util.concurrent LinkedBlockingQueue]))
 
@@ -65,7 +68,7 @@
                                   :handler default-foo-job}})
 
 (extend-type LinkedBlockingQueue
-  IProducer
+  p/IProducer
   (start-events ([this] this) ([this _] this))
   (stop-events ([_] nil) ([_ _] nil)))
 
@@ -91,7 +94,7 @@
   []
   (dsp/set-dispatch-table! disp dsp1)
   (println "Starting:" (java.util.Date.))
-  (start e)
+  (dmn/start e)
   (future (doseq [e (make-events 1e6)]
             (.put q e)))
   (Thread/sleep 100)

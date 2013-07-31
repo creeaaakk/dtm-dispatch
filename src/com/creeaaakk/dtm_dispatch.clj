@@ -1,24 +1,18 @@
 (ns com.creeaaakk.dtm-dispatch
   (:require [clojure.core.match :refer [clj-form]]
 
-            [com.creeaaakk.dtm-dispatch.protocols.dispatch :as dsp]
+            [com.creeaaakk.dtm-dispatch.protocols
+             [dispatch :as dsp]
+             [producer :as p]
+             [daemon :as dmn]]
+            
             [datomic.api :as d])
   (:import [java.util.concurrent
             ThreadPoolExecutor ThreadPoolExecutor$DiscardPolicy
             TimeUnit SynchronousQueue BlockingQueue]))
 
-(defprotocol IDaemon
-  (start [this])
-  (stop [this]))
-
-(defprotocol IProducer
-  (start-events [this] [this queue]
-    "Returns a queue (or uses the provided queue) that events will be made available on.")
-  (stop-events [this] [this queue]
-    "Stops appending events onto the queue."))
-
 (extend-type datomic.Connection
-  IProducer
+  p/IProducer
   (start-events
     ([connection]
        (d/tx-report-queue connection))
@@ -35,14 +29,14 @@
 (deftype DispatchingExecutor
     [disp executor producer ^BlockingQueue txn-queue ^BlockingQueue work-queue stop pumping-thread]
 
-  IDaemon
+  dmn/IDaemon
   (start [this]
     (if (nil? @pumping-thread)
       (do (reset! pumping-thread (Thread. (pumping-loop txn-queue disp stop executor) "pumping-thread"))
           (.start @pumping-thread))
       (throw (ex-info "Tried to start non-new pumping-thread." {:thread-state (.getState @pumping-thread)}))))
   (stop [_]
-    (stop-events producer)
+    (p/stop-events producer)
     (when-not (or (nil? @pumping-thread)
                   (= (.getState @pumping-thread) Thread$State/TERMINATED))
       (.put txn-queue stop)
@@ -56,6 +50,8 @@
           (when-not (identical? txn stop-sentinel)
             (if-let [handler (dsp/dispatch dispatch-table (:tx-data txn))]
               (.execute executor (handler txn)))
+            (when (.isEmpty txn-queue)
+              (println "Done:" (java.util.Date.)))
             (recur (.take txn-queue))))))
 
 (defn executor
@@ -75,7 +71,7 @@
                  dispatch
                  txn-queue work-queue)))
   ([executor dispatch producer work-queue]
-     (let [txn-queue (start-events producer)]
+     (let [txn-queue (p/start-events producer)]
        (->DispatchingExecutor dispatch executor producer
                               txn-queue work-queue
                               (Object.) (atom nil)))))
